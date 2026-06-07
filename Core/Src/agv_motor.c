@@ -8,89 +8,90 @@
 #include "agv_motor.h"
 #include "tim.h"  // htim2 değişkenine (PWM için) erişebilmek için ekliyoruz
 #include "agv_telemetry.h"
-void AGV_Forward(uint16_t speed)
+#include "gpio.h"
+#include "agv_motor.h"
+#include "tim.h"   // htim2 için gerekli
+#include "gpio.h"
+#include "agv_telemetry.h"
+
+// --- DC MOTOR KONTROL FONKSİYONLARI ---
+
+void AGV_Motor_Init(void)
 {
-    // Sol Motor İleri (IN1=1, IN2=0)
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_RESET);
-
-    // Sağ Motor İleri (IN3=1, IN4=0) - IN3/IN4 PB0 ve PB1'de
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
-
-    // PWM Hızlarını Uygula
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, speed); // Sol Motor
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, speed); // Sağ Motor
+    // Motor sürüşüne başlamadan önce PWM kanallarını aktif etmeliyiz
+    HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); // ENA (Motor 1 Hız)
+    HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2); // ENB (Motor 2 Hız)
 }
 
-/**
- * @brief AGV'yi geri yönde hareket ettirir.
- * @param speed: 0 ile 999 arası hız değeri
- */
-void AGV_Backward(uint16_t speed)
-{
-    // Sol Motor Geri (IN1=0, IN2=1)
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_SET);
-
-    // Sağ Motor Geri (IN3=0, IN4=1)
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
-
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, speed);
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, speed);
-}
-
-/**
- * @brief AGV'yi olduğu yerde sağa döndürür (Tank Turn).
- * @param speed: 0 ile 999 arası hız değeri
- */
-void AGV_TurnRight(uint16_t speed)
-{
-    // Sol Motor İleri
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_RESET);
-
-    // Sağ Motor Geri
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
-
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, speed);
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, speed);
-}
-
-/**
- * @brief AGV'yi olduğu yerde sola döndürür (Tank Turn).
- * @param speed: 0 ile 999 arası hız değeri
- */
-void AGV_TurnLeft(uint16_t speed)
-{
-    // Sol Motor Geri
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_SET);
-
-    // Sağ Motor İleri
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
-
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, speed);
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, speed);
-}
-
-/**
- * @brief Motorları tamamen durdurur.
- */
 void AGV_Stop(void)
 {
-    // Yön pinlerini sıfırla (Serbest duruş)
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
-
-    // PWM'i sıfırla
+    // Hızları sıfırla (PWM Duty Cycle = 0)
     __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 0);
     __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 0);
+
+    // Tüm yön pinlerini LOW seviyesine çek (L298N Fren Modu)
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, GPIO_PIN_RESET); // M1_YON1
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_RESET); // M1_YON2
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET); // M2_YON1
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET); // M2_YON2
+}
+
+void AGV_Forward(uint16_t speed)
+{
+    // Motor 1 (Sol) İleri
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, GPIO_PIN_SET);   // M1_YON1 HIGH
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_RESET); // M1_YON2 LOW
+
+    // Motor 2 (Sağ) İleri
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);   // M2_YON1 HIGH
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET); // M2_YON2 LOW
+
+    // Hızı PWM'e yaz
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, speed);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, speed);
+}
+
+void AGV_Backward(uint16_t speed)
+{
+    // Motor 1 (Sol) Geri (Pinler Tersleniyor)
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_SET);
+
+    // Motor 2 (Sağ) Geri (Pinler Tersleniyor)
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
+
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, speed);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, speed);
+}
+
+// Nokta Dönüşü (Tank Dönüşü) - Biri İleri, Biri Geri
+void AGV_TurnLeft(uint16_t speed)
+{
+    // Motor 1 Geri
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_SET);
+
+    // Motor 2 İleri
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
+
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, speed);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, speed);
+}
+
+void AGV_TurnRight(uint16_t speed)
+{
+    // Motor 1 İleri
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_RESET);
+
+    // Motor 2 Geri
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
+
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, speed);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, speed);
 }
 
 void StepMotor_Drive(int16_t steps)

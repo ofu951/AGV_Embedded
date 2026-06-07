@@ -34,7 +34,6 @@
 #include "agv_sensor.h"
 #include "agv_telemetry.h"
 /* USER CODE END Includes */
-/* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
@@ -155,13 +154,19 @@ int main(void)
                     int16_t value = (rx_payload[2] << 8) | rx_payload[1];
 
                     if (msg_id == 0x03) {
-                        agv_packet.dc_speed = value;
-                        if(value > 0) AGV_Forward(value);
-                        else if(value < 0) AGV_Backward(-value);
-                        else AGV_Stop();
+                    	agv_packet.dc_speed = value;
+                    	if(value > 0) AGV_Forward(value);
+                    	else if(value < 0) AGV_Backward(-value);
+                    	else AGV_Stop();
+                    }
+                    // YENİ EKLENEN KISIM: DC Motorlar ile Tank Dönüşü
+                    else if (msg_id == 0x05) {
+                    	if(value > 0) AGV_TurnRight(value);
+                    	else if(value < 0) AGV_TurnLeft(-value);
+                    	else AGV_Stop();
                     }
                     else if (msg_id == 0x04) {
-                        StepMotor_Drive(value);
+                    	StepMotor_Drive(value);
                     }
                 }
             }
@@ -220,11 +225,11 @@ int main(void)
         	last_telemetry_time = HAL_GetTick();
         }
     }
-          /* USER CODE END WHILE */
+    /* USER CODE END WHILE */
 
-          /* USER CODE BEGIN 3 */
+    /* USER CODE BEGIN 3 */
+  /* USER CODE END 3 */
 }
-        /* USER CODE END 3 */
 
 /**
   * @brief System Clock Configuration

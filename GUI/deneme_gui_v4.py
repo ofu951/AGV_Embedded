@@ -6,7 +6,6 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QLabel, QPushButton, QComboBox, QGroupBox, QGridLayout, QSlider)
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 
-# DİKKAT: Paket formatına bir adet 'B' (i2c_status) ve checksum eklendi. Toplam 27 Byte.
 PACKET_FORMAT = '<BB B HHHHHH f h i B B'
 PACKET_SIZE = 27
 
@@ -29,26 +28,23 @@ class SerialWorker(QThread):
                 if self.serial_conn.in_waiting > 0:
                     buffer += self.serial_conn.read(self.serial_conn.in_waiting)
                     
-                    while len(buffer) >= 4:
+                    while len(buffer) >= PACKET_SIZE:
                         if buffer[0] == 0xAA and buffer[1] == 0x55:
                             msg_id = buffer[2]
                             
-                            # YENİ: Paket boyutu artık 27 Byte
-                            if msg_id == 0x02 and len(buffer) >= 27:
-                                packet = buffer[:27]
+                            if msg_id == 0x02 and len(buffer) >= PACKET_SIZE:
+                                packet = buffer[:PACKET_SIZE]
                                 calc_checksum = 0
                                 
-                                # 2'den 26'ya kadar checksum hesapla (26. byte gelen checksum)
-                                for i in range(2, 26):
+                                for i in range(2, PACKET_SIZE - 1):
                                     calc_checksum ^= packet[i]
                                     
-                                if calc_checksum == packet[26]:
+                                if calc_checksum == packet[PACKET_SIZE - 1]:
                                     parsed = struct.unpack(PACKET_FORMAT, packet)
                                     
-                                    # YENİ: 12. İndeksteki i2c_status byte'ını bitlerine ayır
                                     status_byte = parsed[12]
-                                    rgb_online = bool(status_byte & 0x01)    # 0. Bit (0x29)
-                                    as5600_online = bool(status_byte & 0x02) # 1. Bit (0x36)
+                                    rgb_online = bool(status_byte & 0x01)    
+                                    as5600_online = bool(status_byte & 0x02) 
                                     
                                     telemetry = {
                                         'msg_id': parsed[2],
@@ -60,7 +56,7 @@ class SerialWorker(QThread):
                                         'as5600_ok': as5600_online
                                     }
                                     self.data_received.emit({'type': 'telemetry', 'data': telemetry})
-                                buffer = buffer[27:]
+                                buffer = buffer[PACKET_SIZE:]
                             
                             elif msg_id == 0x01 and len(buffer) >= 4:
                                 self.data_received.emit({'type': 'heartbeat'})
@@ -84,25 +80,25 @@ class SerialWorker(QThread):
 class AGVControlPanel(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("AGV Telemetri Kontrol Paneli")
-        self.resize(650, 550)
+        self.setWindowTitle("AGV Tam Kontrol Paneli (DC Sürüş + Step Mekanizma)")
+        self.resize(950, 600) 
         self.worker = None
         
         self.watchdog_timer = QTimer()
         self.watchdog_timer.timeout.connect(self.set_hb_offline)
         
-        self.step_timer = QTimer()
-        self.step_timer.timeout.connect(self.send_step_chunk)
-        self.current_step_dir = 0
+        self.steer_timer = QTimer()
+        self.steer_timer.timeout.connect(self.send_steer_chunk)
+        self.current_steer_value = 0
         
         self.init_ui()
         
     def init_ui(self):
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
-        layout = QVBoxLayout(main_widget)
+        main_layout = QVBoxLayout(main_widget)
         
-        # --- Üst Bar ---
+        # --- Üst Bağlantı Barı ---
         top_layout = QHBoxLayout()
         self.combo_ports = QComboBox()
         self.refresh_ports()
@@ -116,13 +112,21 @@ class AGVControlPanel(QMainWindow):
         top_layout.addWidget(QLabel("Port:"))
         top_layout.addWidget(self.combo_ports)
         top_layout.addWidget(self.btn_connect)
+        
+        self.btn_hb_send = QPushButton("Sistemi Yokla (FF 01)")
+        self.btn_hb_send.clicked.connect(self.send_hb_request)
+        self.btn_hb_send.setEnabled(False)
+        top_layout.addWidget(self.btn_hb_send)
+        
         top_layout.addStretch()
         top_layout.addWidget(QLabel("Heartbeat Status:"))
         top_layout.addWidget(self.lbl_hb_led)
-        layout.addLayout(top_layout)
+        main_layout.addLayout(top_layout)
         
-        # --- Telemetri Grid ---
-        grid = QGridLayout()
+        body_layout = QHBoxLayout()
+        
+        # ================= SOL TARAF: TELEMETRİ VERİLERİ =================
+        grid_telemetry = QGridLayout()
         self.lbl_ir_l = QLabel("0")
         self.lbl_ir_r = QLabel("0")
         self.lbl_rgb = QLabel("R:0 G:0 B:0 C:0")
@@ -130,7 +134,6 @@ class AGVControlPanel(QMainWindow):
         self.lbl_dc = QLabel("0")
         self.lbl_step = QLabel("0")
         
-        # YENİ: Sensör Durum LED'leri
         self.lbl_rgb_led = QLabel()
         self.lbl_rgb_led.setFixedSize(15, 15)
         self.set_sensor_led(self.lbl_rgb_led, False)
@@ -139,86 +142,106 @@ class AGVControlPanel(QMainWindow):
         self.lbl_as5600_led.setFixedSize(15, 15)
         self.set_sensor_led(self.lbl_as5600_led, False)
         
-        # Layout Yerleşimi (LED'ler değerlerin sağına eklendi)
-        grid.addWidget(QLabel("<b>IR Sol (ADC):</b>"), 0, 0)
-        grid.addWidget(self.lbl_ir_l, 0, 1)
+        grid_telemetry.addWidget(QLabel("<b>IR Sol (ADC):</b>"), 0, 0)
+        grid_telemetry.addWidget(self.lbl_ir_l, 0, 1)
         
-        grid.addWidget(QLabel("<b>IR Sağ (ADC):</b>"), 1, 0)
-        grid.addWidget(self.lbl_ir_r, 1, 1)
+        grid_telemetry.addWidget(QLabel("<b>IR Sağ (ADC):</b>"), 1, 0)
+        grid_telemetry.addWidget(self.lbl_ir_r, 1, 1)
         
-        # RGB Satırı: Başlık | Değer | LED
-        grid.addWidget(QLabel("<b>Renk (RGB):</b>"), 2, 0)
-        grid.addWidget(self.lbl_rgb, 2, 1)
-        grid.addWidget(self.lbl_rgb_led, 2, 2)
+        grid_telemetry.addWidget(QLabel("<b>Renk (RGB):</b>"), 2, 0)
+        grid_telemetry.addWidget(self.lbl_rgb, 2, 1)
+        grid_telemetry.addWidget(self.lbl_rgb_led, 2, 2)
         
-        # AS5600 Satırı: Başlık | Değer | LED
-        grid.addWidget(QLabel("<b>Manyetik Açı:</b>"), 3, 0)
-        grid.addWidget(self.lbl_angle, 3, 1)
-        grid.addWidget(self.lbl_as5600_led, 3, 2)
+        grid_telemetry.addWidget(QLabel("<b>Manyetik Açı:</b>"), 3, 0)
+        grid_telemetry.addWidget(self.lbl_angle, 3, 1)
+        grid_telemetry.addWidget(self.lbl_as5600_led, 3, 2)
         
-        grid.addWidget(QLabel("<b>Mevcut DC Hızı (PWM):</b>"), 4, 0)
-        grid.addWidget(self.lbl_dc, 4, 1)
+        grid_telemetry.addWidget(QLabel("<b>DC Motor (PWM):</b>"), 4, 0)
+        grid_telemetry.addWidget(self.lbl_dc, 4, 1)
         
-        grid.addWidget(QLabel("<b>Mevcut Step Konumu:</b>"), 5, 0)
-        grid.addWidget(self.lbl_step, 5, 1)
+        grid_telemetry.addWidget(QLabel("<b>Step Konumu:</b>"), 5, 0)
+        grid_telemetry.addWidget(self.lbl_step, 5, 1)
         
-        # Sütun genişliklerini ayarla ki LED'ler sağa yaslansın
-        grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(2, 0)
+        grid_telemetry.setColumnStretch(1, 1)
         
         group_telemetry = QGroupBox("Canlı Sensör Verileri")
-        group_telemetry.setLayout(grid)
-        layout.addWidget(group_telemetry)
+        group_telemetry.setLayout(grid_telemetry)
+        body_layout.addWidget(group_telemetry, stretch=3)
         
-        # --- Kontroller ---
-        ctrl_layout = QVBoxLayout()
+        # ================= SAĞ TARAF: KONTROLLER =================
+        controls_layout = QVBoxLayout()
         
-        self.btn_hb_send = QPushButton("Sistemi Yokla / Heartbeat Gönder (FF 01)")
-        self.btn_hb_send.clicked.connect(self.send_hb_request)
-        self.btn_hb_send.setEnabled(False)
-        ctrl_layout.addWidget(self.btn_hb_send)
+        # 1. BÖLÜM: DC MOTOR KONTROLÜ (İLERİ/GERİ ve SAĞ/SOL)
+        dc_group = QGroupBox("AGV Sürüş Kontrolü (DC Motorlar)")
+        dc_layout = QGridLayout()
+        
+        self.lbl_dc_fw_bw = QLabel("İleri / Geri: % 0")
+        self.lbl_dc_fw_bw.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.slider_dc_fw_bw = QSlider(Qt.Orientation.Vertical)
+        self.slider_dc_fw_bw.setMinimum(-100)
+        self.slider_dc_fw_bw.setMaximum(100)
+        self.slider_dc_fw_bw.setValue(0)
+        self.slider_dc_fw_bw.setTickPosition(QSlider.TickPosition.TicksBothSides)
+        self.slider_dc_fw_bw.setStyleSheet("min-height: 150px; max-width: 40px;")
+        self.slider_dc_fw_bw.valueChanged.connect(self.on_dc_fw_bw_change)
+        self.slider_dc_fw_bw.sliderReleased.connect(self.reset_dc_fw_bw)
+        
+        self.lbl_dc_turn = QLabel("Tank Dönüşü (Sağ/Sol): % 0")
+        self.lbl_dc_turn.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.slider_dc_turn = QSlider(Qt.Orientation.Horizontal)
+        self.slider_dc_turn.setMinimum(-100)
+        self.slider_dc_turn.setMaximum(100)
+        self.slider_dc_turn.setValue(0)
+        self.slider_dc_turn.setTickPosition(QSlider.TickPosition.TicksBothSides)
+        self.slider_dc_turn.setStyleSheet("min-width: 200px;")
+        self.slider_dc_turn.valueChanged.connect(self.on_dc_turn_change)
+        self.slider_dc_turn.sliderReleased.connect(self.reset_dc_turn)
+        
+        dc_layout.addWidget(self.lbl_dc_fw_bw, 0, 0)
+        dc_layout.addWidget(self.slider_dc_fw_bw, 1, 0, 2, 1, Qt.AlignmentFlag.AlignCenter)
+        dc_layout.addWidget(self.lbl_dc_turn, 0, 1)
+        dc_layout.addWidget(self.slider_dc_turn, 1, 1, 1, 1, Qt.AlignmentFlag.AlignCenter)
+        
+        dc_group.setLayout(dc_layout)
+        controls_layout.addWidget(dc_group)
+        
+        # 2. BÖLÜM: STEP MOTOR KONTROLÜ (HARİCİ MEKANİZMA)
+        step_group = QGroupBox("Harici Mekanizma Kontrolü (Step Motor)")
+        step_layout = QVBoxLayout()
+        
+        self.lbl_step_val = QLabel("Durum: Merkez")
+        self.lbl_step_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        self.slider_step = QSlider(Qt.Orientation.Horizontal)
+        self.slider_step.setMinimum(-100)
+        self.slider_step.setMaximum(100)
+        self.slider_step.setValue(0)
+        self.slider_step.setTickPosition(QSlider.TickPosition.TicksBothSides)
+        
+        self.slider_step.valueChanged.connect(self.on_step_change)
+        self.slider_step.sliderReleased.connect(self.reset_step)
+        
+        step_h_layout = QHBoxLayout()
+        lbl_ccw = QLabel("<b><< CCW</b>")
+        lbl_ccw.setStyleSheet("color: #e74c3c;")
+        lbl_cw = QLabel("<b>CW >></b>")
+        lbl_cw.setStyleSheet("color: #2ecc71;")
+        
+        step_h_layout.addWidget(lbl_ccw)
+        step_h_layout.addWidget(self.slider_step)
+        step_h_layout.addWidget(lbl_cw)
+        
+        step_layout.addWidget(self.lbl_step_val)
+        step_layout.addLayout(step_h_layout)
+        
+        step_group.setLayout(step_layout)
+        controls_layout.addWidget(step_group)
+        
+        body_layout.addLayout(controls_layout, stretch=4)
+        main_layout.addLayout(body_layout)
+        
+        self.set_controls_enabled(False)
 
-        # --- DC Motor Kontrolü (Canlı ve Yaylı) ---
-        self.lbl_slider_dc_val = QLabel("DC Motor Ana Gaz (İleri/Geri): % 0")
-        
-        self.slider_dc = QSlider(Qt.Orientation.Horizontal)
-        self.slider_dc.setMinimum(-100)
-        self.slider_dc.setMaximum(100)
-        self.slider_dc.setValue(0)
-        
-        # 1. Slider hareket ettikçe canlı veri gönder
-        self.slider_dc.valueChanged.connect(self.on_dc_slider_change)
-        # 2. Fareyi bırakınca slider'ı 0'a (merkeze) geri çek (Yay etkisi)
-        self.slider_dc.sliderReleased.connect(self.reset_dc_slider)
-        
-        ctrl_layout.addWidget(self.lbl_slider_dc_val)
-        ctrl_layout.addWidget(self.slider_dc)
-        # btn_send_dc'yi tamamen sildik, arayüz çok daha akıcı oldu!
-        
-        self.lbl_step_ctrl = QLabel("Step Motor Yön Kontrolü (Sürmek için Basılı Tutun):")
-        step_btn_layout = QHBoxLayout()
-        self.btn_step_ccw = QPushButton("<< CCW (Sola Dön)")
-        self.btn_step_cw = QPushButton("CW (Sağa Dön) >>")
-        
-        self.btn_step_cw.pressed.connect(lambda: self.start_step_jog(1))
-        self.btn_step_cw.released.connect(self.stop_step_jog)
-        self.btn_step_ccw.pressed.connect(lambda: self.start_step_jog(-1))
-        self.btn_step_ccw.released.connect(self.stop_step_jog)
-        
-        self.btn_step_ccw.setEnabled(False)
-        self.btn_step_cw.setEnabled(False)
-        
-        step_btn_layout.addWidget(self.btn_step_ccw)
-        step_btn_layout.addWidget(self.btn_step_cw)
-        
-        ctrl_layout.addWidget(self.lbl_step_ctrl)
-        ctrl_layout.addLayout(step_btn_layout)
-        
-        group_ctrl = QGroupBox("Motor Kontrol Paneli")
-        group_ctrl.setLayout(ctrl_layout)
-        layout.addWidget(group_ctrl)
-
-    # YENİ: Sensör LED'lerini renklendiren yardımcı fonksiyon
     def set_sensor_led(self, label, is_online):
         if is_online:
             label.setStyleSheet("background-color: #2ecc71; border-radius: 7px; border: 1px solid gray;")
@@ -231,11 +254,15 @@ class AGVControlPanel(QMainWindow):
 
     def set_hb_offline(self):
         self.lbl_hb_led.setStyleSheet("background-color: #e74c3c; border-radius: 10px; border: 1px solid gray;")
-        
-        # Arayüz tam yüklenmeden çağrılırsa hata vermemesi için obje kontrolü ekliyoruz
         if hasattr(self, 'lbl_rgb_led') and hasattr(self, 'lbl_as5600_led'):
             self.set_sensor_led(self.lbl_rgb_led, False)
             self.set_sensor_led(self.lbl_as5600_led, False)
+
+    def set_controls_enabled(self, enabled):
+        self.slider_dc_fw_bw.setEnabled(enabled)
+        self.slider_dc_turn.setEnabled(enabled)
+        self.slider_step.setEnabled(enabled)
+        self.btn_hb_send.setEnabled(enabled)
 
     def update_gui(self, msg):
         if msg['type'] == 'telemetry':
@@ -248,7 +275,6 @@ class AGVControlPanel(QMainWindow):
             self.lbl_dc.setText(str(data['dc_speed']))
             self.lbl_step.setText(str(data['step_pos']))
             
-            # YENİ: Sensör LED'lerini gelen bayraklara göre güncelle
             self.set_sensor_led(self.lbl_rgb_led, data.get('rgb_ok', False))
             self.set_sensor_led(self.lbl_as5600_led, data.get('as5600_ok', False))
             
@@ -263,18 +289,14 @@ class AGVControlPanel(QMainWindow):
                 self.worker.data_received.connect(self.update_gui)
                 self.worker.start()
                 self.btn_connect.setText("Bağlantıyı Kes")
-                self.btn_hb_send.setEnabled(True)
-                self.btn_step_ccw.setEnabled(True)
-                self.btn_step_cw.setEnabled(True)
+                self.set_controls_enabled(True)
                 self.watchdog_timer.start(2000)
         else:
             self.worker.stop()
             self.worker.wait()
             self.worker = None
             self.btn_connect.setText("Bağlan")
-            self.btn_hb_send.setEnabled(False)
-            self.btn_step_ccw.setEnabled(False)
-            self.btn_step_cw.setEnabled(False)
+            self.set_controls_enabled(False)
             self.watchdog_timer.stop()
             self.set_hb_offline()
 
@@ -282,41 +304,58 @@ class AGVControlPanel(QMainWindow):
         if self.worker:
             self.worker.send_data(bytes([0xFF, 0x01]))
 
-    def on_dc_slider_change(self, value):
-        self.lbl_slider_dc_val.setText(f"DC Motor Ana Gaz (İleri/Geri): % {value}")
-        # Canlı PWM Gönderimi
+    # --- 1. DC Motor İleri / Geri (MSG ID: 0x03) ---
+    def on_dc_fw_bw_change(self, value):
+        self.lbl_dc_fw_bw.setText(f"İleri / Geri: % {value}")
         if self.worker:
-            # -100 ile +100 arasını STM32'nin anladığı PWM değerine (0-999) çeviriyoruz
-            # C kodu eksi değerleri kendi içinde 'AGV_Backward' olarak yönlendiriyor zaten
             pwm_val = int(value * 9.99)
             speed_bytes = struct.pack('<h', pwm_val) 
             calc_checksum = 0x03 ^ speed_bytes[0] ^ speed_bytes[1]
             cmd_packet = struct.pack('<BBB', 0xAA, 0x55, 0x03) + speed_bytes + struct.pack('<B', calc_checksum)
             self.worker.send_data(cmd_packet)
 
-    def reset_dc_slider(self):
-        # Fare bırakıldığında slider otomatik 0'a döner ve durma komutu gider
-        self.slider_dc.setValue(0)
+    def reset_dc_fw_bw(self):
+        self.slider_dc_fw_bw.setValue(0)
 
-    def send_dc_command(self):
+    # --- 2. DC Motor Tank Dönüşü Sağ / Sol (MSG ID: 0x05) ---
+    def on_dc_turn_change(self, value):
+        self.lbl_dc_turn.setText(f"Tank Dönüşü: % {value}")
         if self.worker:
-            percent = self.slider_dc.value()
-            pwm_val = int(percent * 9.99)
+            pwm_val = int(value * 9.99)
             speed_bytes = struct.pack('<h', pwm_val) 
-            calc_checksum = 0x03 ^ speed_bytes[0] ^ speed_bytes[1]
-            cmd_packet = struct.pack('<BBB', 0xAA, 0x55, 0x03) + speed_bytes + struct.pack('<B', calc_checksum)
+            calc_checksum = 0x05 ^ speed_bytes[0] ^ speed_bytes[1] # Yeni MSG_ID: 0x05
+            cmd_packet = struct.pack('<BBB', 0xAA, 0x55, 0x05) + speed_bytes + struct.pack('<B', calc_checksum)
             self.worker.send_data(cmd_packet)
 
-    def start_step_jog(self, direction):
-        self.current_step_dir = direction
-        self.step_timer.start(50)
+    def reset_dc_turn(self):
+        self.slider_dc_turn.setValue(0)
 
-    def stop_step_jog(self):
-        self.step_timer.stop()
+    # --- 3. Step Motor Kontrolü (MSG ID: 0x04) ---
+    def on_step_change(self, value):
+        if value < 0:
+            self.lbl_step_val.setText(f"CCW Yönünde % {abs(value)} Gücünde Dönüyor")
+        elif value > 0:
+            self.lbl_step_val.setText(f"CW Yönünde % {value} Gücünde Dönüyor")
+        else:
+            self.lbl_step_val.setText("Durum: Merkez")
+            
+        if value != 0:
+            self.current_steer_value = value
+            if not self.steer_timer.isActive():
+                self.steer_timer.start(50) 
+        else:
+            self.steer_timer.stop()
 
-    def send_step_chunk(self):
-        if self.worker:
-            ticks = 20 * self.current_step_dir
+    def reset_step(self):
+        self.slider_step.setValue(0)
+        self.steer_timer.stop()
+
+    def send_steer_chunk(self):
+        if self.worker and self.current_steer_value != 0:
+            ticks = int(self.current_steer_value * 0.3)
+            if ticks == 0 and self.current_steer_value > 0: ticks = 1
+            if ticks == 0 and self.current_steer_value < 0: ticks = -1
+            
             tick_bytes = struct.pack('<h', ticks) 
             calc_checksum = 0x04 ^ tick_bytes[0] ^ tick_bytes[1]
             cmd_packet = struct.pack('<BBB', 0xAA, 0x55, 0x04) + tick_bytes + struct.pack('<B', calc_checksum)

@@ -20,29 +20,44 @@ void RGB_Sensor_Init(void)
     HAL_Delay(50);
 }
 
-/**
- * @brief Sensörden R, G, B ve Clear verilerini okur (Hata Toleranslı)
- */
-/**
- * @brief Sensörden R, G, B ve Clear verilerini okur (Hata Toleranslı)
- */
+
 void RGB_Sensor_Read(uint16_t *r, uint16_t *g, uint16_t *b, uint16_t *c)
 {
     uint8_t buffer[8];
 
-    // DİKKAT: '1' yerine 'I2C_MEMADD_SIZE_8BIT' makrosu eklendi
     if(HAL_I2C_Mem_Read(&hi2c1, TCS34725_ADDR, (TCS34725_COMMAND_BIT | TCS34725_CDATAL), I2C_MEMADD_SIZE_8BIT, buffer, 8, 10) == HAL_OK)
     {
-        *c = (buffer[1] << 8) | buffer[0];
-        *r = (buffer[3] << 8) | buffer[2];
-        *g = (buffer[5] << 8) | buffer[4];
-        *b = (buffer[7] << 8) | buffer[6];
+        // 1. Ham (Raw) 16-Bit Değerleri Oku
+        uint16_t raw_c = (buffer[1] << 8) | buffer[0];
+        uint16_t raw_r = (buffer[3] << 8) | buffer[2];
+        uint16_t raw_g = (buffer[5] << 8) | buffer[4];
+        uint16_t raw_b = (buffer[7] << 8) | buffer[6];
+
+        // Clear (Toplam Işık) değerini doğrudan dışarı aktar
+        *c = raw_c;
+
+        // 2. 0-255 Normalizasyon İşlemi (Renkleri Ortam Işığından Bağımsızlaştır)
+        if (raw_c > 0) // Sıfıra bölme hatasını (Divide by Zero) engelle
+        {
+            // (Renk / Toplam Işık) * 255
+            uint32_t r_norm = ((uint32_t)raw_r * 255) / raw_c;
+            uint32_t g_norm = ((uint32_t)raw_g * 255) / raw_c;
+            uint32_t b_norm = ((uint32_t)raw_b * 255) / raw_c;
+
+            // Bazı aşırı doygun durumlarda 255'i geçmemesi için sınırla (Clamp)
+            *r = (r_norm > 255) ? 255 : (uint16_t)r_norm;
+            *g = (g_norm > 255) ? 255 : (uint16_t)g_norm;
+            *b = (b_norm > 255) ? 255 : (uint16_t)b_norm;
+        }
+        else
+        {
+            *r = 0; *g = 0; *b = 0;
+        }
     }
     else
     {
         *c = 0; *r = 0; *g = 0; *b = 0;
         uint8_t enable_data = 0x03;
-        // DİKKAT: '1' yerine 'I2C_MEMADD_SIZE_8BIT' eklendi
         HAL_I2C_Mem_Write(&hi2c1, TCS34725_ADDR, (TCS34725_COMMAND_BIT | TCS34725_ENABLE), I2C_MEMADD_SIZE_8BIT, &enable_data, 1, 10);
     }
 }
