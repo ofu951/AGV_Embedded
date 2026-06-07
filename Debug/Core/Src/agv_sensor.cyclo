@@ -1,0 +1,5 @@
+../Core/Src/agv_sensor.c:16:6:RGB_Sensor_Init	1
+../Core/Src/agv_sensor.c:29:6:RGB_Sensor_Read	2
+../Core/Src/agv_sensor.c:61:6:AS5600_Read_Angle	2
+../Core/Src/agv_sensor.c:89:6:Test_LineSensors	2
+../Core/Src/agv_sensor.c:102:6:AGV_FollowLine	9
