@@ -22,6 +22,7 @@
 #include "i2c.h"
 #include "tim.h"
 #include "usart.h"
+#include "usb_device.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -64,12 +65,15 @@ void RGB_Sensor_Read(uint16_t *r, uint16_t *g, uint16_t *b, uint16_t *c);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-char uart_tx_buffer[256];
-uint32_t last_blink_time = 0; // Run LED için zaman tutucu
-uint8_t rx_buffer[2];
-uint32_t last_telemetry_time = 0;
+#include "usbd_cdc_if.h"
 
-/* USER CODE BEGIN 0 */
+// USB CDC buffer'larını kullan (usbd_cdc_if.c'den)
+extern uint8_t UserRxBufferFS[APP_RX_DATA_SIZE];
+extern uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
+
+uint32_t last_blink_time = 0;
+uint32_t last_telemetry_time = 0;
+/* USER CODE END 0 */
 
 
 /* USER CODE END 0 */
@@ -108,6 +112,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_ADC1_Init();
   MX_I2C2_Init();
+  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
   agv_packet.header[0] = 0xAA;
   agv_packet.header[1] = 0x55;
@@ -115,119 +120,108 @@ int main(void)
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
 
-  RGB_Sensor_Init(); // I2C Sensörünü başlat (Sadece renk testinde kullan)
+  RGB_Sensor_Init();
   HAL_Delay(200);
-
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  /* Infinite loop */
-  /* Infinite loop */
-    /* USER CODE BEGIN WHILE */
-  /* Infinite loop */
-    /* USER CODE BEGIN WHILE */
-    while (1)
-    {
-        // --- 1. RUN LED (PC13) ---
-        if (HAL_GetTick() - last_blink_time >= 500) {
-            HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-            last_blink_time = HAL_GetTick();
-        }
+  while (1)
+  {
+      // --- 1. RUN LED (PC13) ---
+      if (HAL_GetTick() - last_blink_time >= 500) {
+          HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+          last_blink_time = HAL_GetTick();
+      }
 
-        // --- 2. UART KOMUT DİNLEYİCİSİ (Heartbeat ve Motor) ---
-        uint8_t rx_header[2];
-        if (HAL_UART_Receive(&huart1, rx_header, 2, 10) == HAL_OK)
-        {
-            // A. Heartbeat Sorgusu (FF 01)
-            if (rx_header[0] == 0xFF && rx_header[1] == 0x01) {
-                uint8_t hb_response[4] = {0xAA, 0x55, 0x01, 0x01};
-                HAL_UART_Transmit(&huart1, hb_response, 4, 100);
-            }
-            // B. Motor Komutları Paketi (AA 55)
-            else if (rx_header[0] == 0xAA && rx_header[1] == 0x55) {
-                uint8_t rx_payload[4]; // [ID] [L_Byte] [H_Byte] [Checksum]
-                if (HAL_UART_Receive(&huart1, rx_payload, 4, 20) == HAL_OK) {
+      // --- 2. USB CDC KOMUT DİNLEYİCİSİ ---
+      // UserRxBufferFS'deki komutları kontrol et
+      
+      // Heartbeat Sorgusu (FF 01)
+      if (UserRxBufferFS[0] == 0xFF && UserRxBufferFS[1] == 0x01) {
+          uint8_t hb_response[4] = {0xAA, 0x55, 0x01, 0x01};
+          CDC_Transmit_FS(hb_response, 4);
+          memset(UserRxBufferFS, 0, 2);  // Buffer'ı temizle
+      }
+      // Motor Komutları Paketi (AA 55)
+      else if (UserRxBufferFS[0] == 0xAA && UserRxBufferFS[1] == 0x55) {
+          // Yükü oku: [AA 55 ID L_Byte H_Byte Checksum]
+          uint8_t msg_id = UserRxBufferFS[2];
+          int16_t value = (UserRxBufferFS[4] << 8) | UserRxBufferFS[3];
 
-                    uint8_t msg_id = rx_payload[0];
-                    int16_t value = (rx_payload[2] << 8) | rx_payload[1];
+          if (msg_id == 0x03) {  // DC Motor Hız
+              agv_packet.dc_speed = value;
+              if(value > 0) AGV_Forward(value);
+              else if(value < 0) AGV_Backward(-value);
+              else AGV_Stop();
+          }
+          else if (msg_id == 0x05) {  // DC Motor Tank Dönüşü
+              if(value > 0) AGV_TurnRight(value);
+              else if(value < 0) AGV_TurnLeft(-value);
+              else AGV_Stop();
+          }
+          else if (msg_id == 0x04) {  // Step Motor
+              StepMotor_Drive(value);
+          }
+          
+          memset(UserRxBufferFS, 0, 6);  // Buffer'ı temizle
+      }
 
-                    if (msg_id == 0x03) {
-                    	agv_packet.dc_speed = value;
-                    	if(value > 0) AGV_Forward(value);
-                    	else if(value < 0) AGV_Backward(-value);
-                    	else AGV_Stop();
-                    }
-                    // YENİ EKLENEN KISIM: DC Motorlar ile Tank Dönüşü
-                    else if (msg_id == 0x05) {
-                    	if(value > 0) AGV_TurnRight(value);
-                    	else if(value < 0) AGV_TurnLeft(-value);
-                    	else AGV_Stop();
-                    }
-                    else if (msg_id == 0x04) {
-                    	StepMotor_Drive(value);
-                    }
-                }
-            }
-        }
+      // --- 3. SENSÖR OKUMALARI ---
 
-        // --- 3. SENSÖR OKUMALARI ---
+      // A. ADC Okumaları (Çizgi İzleyen Sensörler)
+      ADC_ChannelConfTypeDef sConfig = {0};
 
-        // A. ADC Okumaları (Çizgi İzleyen Sensörler)
-        ADC_ChannelConfTypeDef sConfig = {0};
+      // IR Sol
+      sConfig.Channel = ADC_CHANNEL_4;
+      sConfig.Rank = 1;
+      sConfig.SamplingTime = ADC_SAMPLETIME_13CYCLES_5;
+      HAL_ADC_ConfigChannel(&hadc1, &sConfig);
+      HAL_ADC_Start(&hadc1);
+      if(HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK) agv_packet.ir_left = HAL_ADC_GetValue(&hadc1);
+      HAL_ADC_Stop(&hadc1);
 
-        // IR Sol
-        sConfig.Channel = ADC_CHANNEL_4;
-        sConfig.Rank = 1;
-        sConfig.SamplingTime = ADC_SAMPLETIME_13CYCLES_5;
-        HAL_ADC_ConfigChannel(&hadc1, &sConfig);
-        HAL_ADC_Start(&hadc1);
-        if(HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK) agv_packet.ir_left = HAL_ADC_GetValue(&hadc1);
-        HAL_ADC_Stop(&hadc1);
+      // IR Sağ
+      sConfig.Channel = ADC_CHANNEL_5;
+      sConfig.Rank = 1;
+      sConfig.SamplingTime = ADC_SAMPLETIME_13CYCLES_5;
+      HAL_ADC_ConfigChannel(&hadc1, &sConfig);
+      HAL_ADC_Start(&hadc1);
+      if(HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK) agv_packet.ir_right = HAL_ADC_GetValue(&hadc1);
+      HAL_ADC_Stop(&hadc1);
 
-        // IR Sağ
-        sConfig.Channel = ADC_CHANNEL_5;
-        sConfig.Rank = 1;
-        sConfig.SamplingTime = ADC_SAMPLETIME_13CYCLES_5;
-        HAL_ADC_ConfigChannel(&hadc1, &sConfig);
-        HAL_ADC_Start(&hadc1);
-        if(HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK) agv_packet.ir_right = HAL_ADC_GetValue(&hadc1);
-        HAL_ADC_Stop(&hadc1);
+      // --- B. I2C Okuma ---
+      uint8_t current_status = 0;
 
-        // --- B. I2C Okuma ---
-        uint8_t current_status = 0;
+      // RGB Sensörü (I2C1)
+      if (HAL_I2C_IsDeviceReady(&hi2c1, TCS34725_ADDR, 1, 2) == HAL_OK) {
+          current_status |= 0x01;
+          RGB_Sensor_Read(&agv_packet.color_r, &agv_packet.color_g, &agv_packet.color_b, &agv_packet.color_c);
+      } else {
+          agv_packet.color_r = 0; agv_packet.color_g = 0; agv_packet.color_b = 0; agv_packet.color_c = 0;
+          RGB_Sensor_Init();
+      }
 
-                // Sadece RGB Sensörü Aktif (I2C1)
-        if (HAL_I2C_IsDeviceReady(&hi2c1, TCS34725_ADDR, 1, 2) == HAL_OK) {
-        	current_status |= 0x01; // GUI'deki RGB LED'ini YEŞİL yap
-        	RGB_Sensor_Read(&agv_packet.color_r, &agv_packet.color_g, &agv_packet.color_b, &agv_packet.color_c);
-        } else {
-        	agv_packet.color_r = 0; agv_packet.color_g = 0; agv_packet.color_b = 0; agv_packet.color_c = 0;
-        	RGB_Sensor_Init();
-        }
+      // Manyetik Açı Sensörü (I2C2)
+      if (HAL_I2C_IsDeviceReady(&hi2c2, AS5600_ADDR, 1, 2) == HAL_OK) {
+          current_status |= 0x02;
+          AS5600_Read_Angle(&agv_packet.mag_angle);
+      } else {
+          agv_packet.mag_angle = -1.0f;
+      }
 
-        // Manyetik Açı Sensörü (I2C2) - ŞİMDİLİK YORUMDA
-        if (HAL_I2C_IsDeviceReady(&hi2c2, AS5600_ADDR, 1, 2) == HAL_OK) {
-        	current_status |= 0x02; // GUI'deki AS5600 LED'ini YEŞİL yap
-        	AS5600_Read_Angle(&agv_packet.mag_angle);
-        } else {
-        	agv_packet.mag_angle = -1.0f;
-        }
+      agv_packet.i2c_status = current_status;
 
+      // --- 4. TELEMETRİ GÖNDERİMİ (USB CDC üzerinden) ---
+      if (HAL_GetTick() - last_telemetry_time >= 100) {
+          Send_Telemetry_Binary();
+          last_telemetry_time = HAL_GetTick();
+      }
+  }
+  /* USER CODE END WHILE */
 
-        // GUI'ye gitmesi için durumu struct'a kaydet
-        agv_packet.i2c_status = current_status;
-
-                // --- 4. TELEMETRİ GÖNDERİMİ ---
-        if (HAL_GetTick() - last_telemetry_time >= 100) {
-        	Send_Telemetry_Binary();
-        	last_telemetry_time = HAL_GetTick();
-        }
-    }
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
+  /* USER CODE BEGIN 3 */
   /* USER CODE END 3 */
 }
 
@@ -269,8 +263,9 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC|RCC_PERIPHCLK_USB;
   PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV6;
+  PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLL_DIV1_5;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();

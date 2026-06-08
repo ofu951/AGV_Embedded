@@ -6,12 +6,12 @@
  */
 
 #include "agv_telemetry.h"
-#include "usart.h" // huart1 için gerekli
+#include "usbd_cdc_if.h" // USB CDC gönderme için
 
 AGV_Telemetry_Packet_t agv_packet;
 void Send_Telemetry_Binary(void)
 {
-    // Checksum hesaplama...
+    // Checksum hesaplama (aynı kalacak)
     uint8_t calc_checksum = 0;
     uint8_t *ptr = (uint8_t*)&agv_packet;
 
@@ -20,10 +20,11 @@ void Send_Telemetry_Binary(void)
     }
     agv_packet.checksum = calc_checksum;
 
-    // Struct'ın bellekteki ham halini doğrudan UART'a bas
-    HAL_UART_Transmit(&huart1, (uint8_t*)&agv_packet, sizeof(AGV_Telemetry_Packet_t), 100);
+    // --- DEĞİŞİKLİK: Artık USB üzerinden gönder ---
+    // Eski UART gönderme: HAL_UART_Transmit(&huart1, ...)
+    // Yeni USB gönderme:
+    CDC_Transmit_FS((uint8_t*)&agv_packet, sizeof(AGV_Telemetry_Packet_t));
 
-    // --- YENİ EKLENEN KISIM: Veri Akış Monitörü ---
-    // Her paket gittiğinde LED durum değiştirir. (Titreşim efekti)
+    // LED toggle (opsiyonel, kalabilir)
     HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 }

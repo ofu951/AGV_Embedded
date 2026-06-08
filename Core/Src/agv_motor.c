@@ -21,6 +21,17 @@ void AGV_Motor_Init(void)
     // Motor sürüşüne başlamadan önce PWM kanallarını aktif etmeliyiz
     HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); // ENA (Motor 1 Hız)
     HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2); // ENB (Motor 2 Hız)
+
+    // DRV8825 Step Motor Driver'ı Initialize Et
+    // DIR ve STEP pinlerini LOW'a çek (Başlangıç durumu)
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_RESET); // DIR = LOW
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET); // STEP = LOW
+    
+    // Motor başlangıç pozisyonu
+    agv_packet.step_pos = 0;
+    
+    // UYARI: M0, M1, M2 pinlerini CubeMX'te configure edin!
+    // Full-step modu için hepsi GND'ye bağlanmalı
 }
 
 void AGV_Stop(void)
@@ -107,19 +118,17 @@ void StepMotor_Drive(int16_t steps)
     }
 
     // 2. Adım Sinyali Üretme (STEP Pini -> PB12)
+    // Pulse genişliği: 10µs (0.01ms), İki adım arası: 10ms (daha stabil)
     for(int i = 0; i < steps; i++) {
         HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET);
-
-        // Pulse genişliği beklemesi
-        for(volatile int j=0; j<2000; j++);
-
+        HAL_Delay(1);  // Pulse High genişliği
         HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET);
+        HAL_Delay(10); // İki adım arası bekleme
 
-        // İki adım arası bekleme
-        for(volatile int j=0; j<2000; j++);
-
-        // Adım sayacını (telemetri) yeni DIR pinine (PB13) göre güncelle
-        if(HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_13) == GPIO_PIN_SET) agv_packet.step_pos++;
-        else agv_packet.step_pos--;
+        // Adım sayacını güncelle
+        if(HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_13) == GPIO_PIN_SET) 
+            agv_packet.step_pos++;
+        else 
+            agv_packet.step_pos--;
     }
 }

@@ -27,6 +27,9 @@ Core/Src/agv_sensor.o: ../Core/Src/agv_sensor.c ../Core/Inc/agv_sensor.h \
  ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim.h \
  ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim_ex.h \
  ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_uart.h \
+ ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pcd.h \
+ ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_ll_usb.h \
+ ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pcd_ex.h \
  ../Core/Inc/i2c.h ../Core/Inc/gpio.h ../Core/Inc/agv_motor.h \
  ../Core/Inc/agv_telemetry.h
 ../Core/Inc/agv_sensor.h:
@@ -59,6 +62,9 @@ Core/Src/agv_sensor.o: ../Core/Src/agv_sensor.c ../Core/Inc/agv_sensor.h \
 ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim.h:
 ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim_ex.h:
 ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_uart.h:
+../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pcd.h:
+../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_ll_usb.h:
+../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pcd_ex.h:
 ../Core/Inc/i2c.h:
 ../Core/Inc/gpio.h:
 ../Core/Inc/agv_motor.h:

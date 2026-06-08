@@ -1,5 +1,5 @@
 Core/Src/agv_motor.o: ../Core/Src/agv_motor.c ../Core/Inc/agv_motor.h \
- ../Core/Inc/main.h ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal.h \
+ ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal.h \
  ../Core/Inc/stm32f1xx_hal_conf.h \
  ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_rcc.h \
  ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_def.h \
@@ -27,9 +27,12 @@ Core/Src/agv_motor.o: ../Core/Src/agv_motor.c ../Core/Inc/agv_motor.h \
  ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim.h \
  ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim_ex.h \
  ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_uart.h \
- ../Core/Inc/tim.h ../Core/Inc/agv_telemetry.h
+ ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pcd.h \
+ ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_ll_usb.h \
+ ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pcd_ex.h \
+ ../Core/Inc/tim.h ../Core/Inc/main.h ../Core/Inc/agv_telemetry.h \
+ ../Core/Inc/gpio.h
 ../Core/Inc/agv_motor.h:
-../Core/Inc/main.h:
 ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal.h:
 ../Core/Inc/stm32f1xx_hal_conf.h:
 ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_rcc.h:
@@ -58,5 +61,10 @@ Core/Src/agv_motor.o: ../Core/Src/agv_motor.c ../Core/Inc/agv_motor.h \
 ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim.h:
 ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim_ex.h:
 ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_uart.h:
+../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pcd.h:
+../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_ll_usb.h:
+../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pcd_ex.h:
 ../Core/Inc/tim.h:
+../Core/Inc/main.h:
 ../Core/Inc/agv_telemetry.h:
+../Core/Inc/gpio.h:

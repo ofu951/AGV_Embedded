@@ -1,6 +1,7 @@
-../Core/Src/agv_motor.c:11:6:AGV_Forward	16	static
-../Core/Src/agv_motor.c:30:6:AGV_Backward	16	static
-../Core/Src/agv_motor.c:48:6:AGV_TurnRight	16	static
-../Core/Src/agv_motor.c:66:6:AGV_TurnLeft	16	static
-../Core/Src/agv_motor.c:83:6:AGV_Stop	8	static
-../Core/Src/agv_motor.c:96:6:StepMotor_Drive	32	static
+../Core/Src/agv_motor.c:19:6:AGV_Motor_Init	8	static
+../Core/Src/agv_motor.c:26:6:AGV_Stop	8	static
+../Core/Src/agv_motor.c:39:6:AGV_Forward	16	static
+../Core/Src/agv_motor.c:54:6:AGV_Backward	16	static
+../Core/Src/agv_motor.c:69:6:AGV_TurnLeft	16	static
+../Core/Src/agv_motor.c:83:6:AGV_TurnRight	16	static
+../Core/Src/agv_motor.c:97:6:StepMotor_Drive	32	static
